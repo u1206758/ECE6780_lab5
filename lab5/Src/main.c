@@ -153,35 +153,38 @@ int main(void)
   if (I2C2->ISR & I2C_ISR_NACKF)
   {
     //Failed
-    GPIOC->ODR |= GPIO_ODR_6;
+    GPIOC->ODR |= GPIO_ODR_6; //Turn on red LED
   }
   else
   {
     //success
-    GPIOC->ODR |= GPIO_ODR_9;
+    GPIOC->ODR |= GPIO_ODR_9; //Turn on green LED
     //Write addres of WHO_AM_I register into I2C TXDR
     I2C2->TXDR = 0x0F;
     //Wait until TC flag set
     while (!(I2C2->ISR & I2C_ISR_TC)) {}
     //Reload CR2 with same parameters but set RD_WRN bit to 1 to read 
+    I2C2->CR2 &= ~((0x7F << 16) | (0x3FF << 0));  
+    I2C2->CR2 |= ((1 << 16) | (0x69 << 1));
+    I2C2->CR2 |= I2C_CR2_RD_WRN;
     //set start bit again to perform restart
-    I2C2->CR2 |= 0x0010469;
+    HAL_Delay(1);
     I2C2->CR2 |= I2C_CR2_START;
     //wait until either RXNE or NACKF flags set
     while (!(I2C2->ISR & I2C_ISR_NACKF) && !(I2C2->ISR & I2C_ISR_RXNE)) {}
     if (I2C2->ISR & I2C_ISR_NACKF)
     {
       //Failed
-      GPIOC->ODR |= GPIO_ODR_8;
+      GPIOC->ODR |= GPIO_ODR_8; //Turn on orange LED
     }
     else
     {
       //wait until TC
       while (!(I2C2->ISR & I2C_ISR_TC)) {}
       //Check RXDR register to see if it matches 0xD3
-      if (I2C2->RXDR & 0xD3)
+      if (I2C2->RXDR == 0xD3)
       {
-        GPIOC->ODR |= GPIO_ODR_7;
+        GPIOC->ODR |= GPIO_ODR_7; //Turn on blue LED
       }
       //Set STOP bit in CR2 to release I2C bus
       I2C2->CR2 |= I2C_CR2_STOP;
