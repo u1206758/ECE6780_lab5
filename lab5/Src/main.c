@@ -66,61 +66,126 @@ void SystemClock_Config(void);
 
 /* USER CODE END 0 */
 
+//Initialize all four LEDs
+void init_leds(void)
+{
+  //Initialize red LED, PC6
+  GPIOC->MODER |= GPIO_MODER_MODER6_0; //General purpose output
+  GPIOC->OTYPER &= ~GPIO_OTYPER_OT_6; // Push-pull
+  GPIOC->OSPEEDR &= ~GPIO_OSPEEDR_OSPEEDR6_0; //Low speed
+  GPIOC->PUPDR &= ~(GPIO_PUPDR_PUPDR6_0 | GPIO_PUPDR_PUPDR6_1); //No pull up or down
+
+  //Initialize blue LED, PC7
+  GPIOC->MODER |= GPIO_MODER_MODER7_0; //General purpose output
+  GPIOC->OTYPER &= ~GPIO_OTYPER_OT_7; // Push-pull
+  GPIOC->OSPEEDR &= ~GPIO_OSPEEDR_OSPEEDR7_0; //Low speed
+  GPIOC->PUPDR &= ~(GPIO_PUPDR_PUPDR7_0 | GPIO_PUPDR_PUPDR7_1); //No pull up or down
+
+  //Initialize orange LED, PC8
+  GPIOC->MODER |= GPIO_MODER_MODER8_0; //General purpose output
+  GPIOC->OTYPER &= ~GPIO_OTYPER_OT_8; // Push-pull
+  GPIOC->OSPEEDR &= ~GPIO_OSPEEDR_OSPEEDR8_0; //Low speed
+  GPIOC->PUPDR &= ~(GPIO_PUPDR_PUPDR8_0 | GPIO_PUPDR_PUPDR8_1); //No pull up or down
+
+  //Initialize green LED, PC9
+  GPIOC->MODER |= GPIO_MODER_MODER9_0; //General purpose output
+  GPIOC->OTYPER &= ~GPIO_OTYPER_OT_9; // Push-pull
+  GPIOC->OSPEEDR &= ~GPIO_OSPEEDR_OSPEEDR9_0; //Low speed
+  GPIOC->PUPDR &= ~(GPIO_PUPDR_PUPDR9_0 | GPIO_PUPDR_PUPDR9_1); //No pull up or down
+
+  //Set all LEDs off
+  GPIOC->BSRR |= GPIO_BSRR_BR_6;
+  GPIOC->BSRR |= GPIO_BSRR_BR_7;
+  GPIOC->BSRR |= GPIO_BSRR_BR_8;
+  GPIOC->BSRR |= GPIO_BSRR_BR_9;
+
+}
+
 int main(void)
 {
   SystemClock_Config();
 
-  RCC->AHBENR |= RCC_AHBENR_GPIOAEN;
+  //Enable clock on GPIOB and GPIOC
+  RCC->AHBENR |= RCC_AHBENR_GPIOBEN;
   RCC->AHBENR |= RCC_AHBENR_GPIOCEN;
 
-  uint32_t position = 0x00U;
-  uint32_t iocurrent = 0x00U;
-  uint32_t temp = 0x00U;
+  init_leds();
+  
+  //Set PB11 to alternate function, open-drain output, I2C2_SDA
+  GPIOB->MODER |= GPIO_MODER_MODER11_1;
+  GPIOB->OTYPER |= GPIO_OTYPER_OT_11;
+  GPIOB->AFR[1] |= 0x00001000;
+  //Set PB13 to alternate function, open-drain output, I2C2_SCL
+  GPIOB->MODER |= GPIO_MODER_MODER13_1;
+  GPIOB->OTYPER |= GPIO_OTYPER_OT_13;
+  GPIOB->AFR[1] |= 0x00500000;
+  //Set PB14 to output mode, push-pull output, set pin high
+  GPIOB->MODER |= GPIO_MODER_MODER14_0;
+  GPIOB->OTYPER &= ~GPIO_OTYPER_OT_14;
+  GPIOB->ODR |= GPIO_ODR_14;
+  //Set PC0 to output mode, push-pull output, set pin high
+  GPIOC->MODER |= GPIO_MODER_MODER0_0;
+  GPIOC->OTYPER &= ~GPIO_OTYPER_OT_0;
+  GPIOC->ODR |= GPIO_ODR_0;
 
-  // Mode for PC6-PC9 and PA0
-  GPIOC->MODER &= ~(1 << 13);
-  GPIOC->MODER |= (1 << 12);
-  GPIOC->MODER |= (1 << 14);
-  GPIOC->MODER &= ~(1 << 15);
-  GPIOA->MODER &= ~(1 << 1);
-  GPIOA->MODER &= ~(1 << 0);
+  //Enable I2C2 in RCC
+  RCC->APB1ENR |= RCC_APB1ENR_I2C2EN;
+  //Set TIMINGR to 100 kHz standard-mode - section 5.5.2 and fig 5.4
+  //PRESC 1
+  //SCLL 0x13
+  //SCLH 0xF
+  //SDADEL 0x2
+  //SCLDEL 0x4
+  I2C2->TIMINGR |= 0x10420F13;
+  //Enable I2C using PE bit in CR1
+  I2C2->CR1 |= I2C_CR1_PE;
+  //Set L3GD20 slave address = 0x69
+  //Set number of bytes to transmit = 1
+  //set RD_WRN bit to 0 to indicate write
+  //set the START bit
+  I2C2->CR2 |= 0x00012069;
 
-
-  // Type for PC6-PC9 and PA0
-  GPIOC->OTYPER &= ~(1 << 6);
-  GPIOC->OTYPER &= ~(1 << 7);
-
-  GPIOC->OSPEEDR &= ~(1 << 12);
-  GPIOC->OSPEEDR &= ~(1 << 13);
-  GPIOC->OSPEEDR &= ~(1 << 14);
-  GPIOC->OSPEEDR &= ~(1 << 15);
-  GPIOA->OSPEEDR &= ~(1 << 0);
-
-  GPIOC->PUPDR &= ~(1 << 12);
-  GPIOC->PUPDR &= ~(1 << 13);
-  GPIOC->PUPDR &= ~(1 << 14);
-  GPIOC->PUPDR &= ~(1 << 15);
-  GPIOA->PUPDR |= (1 << 1);
-  GPIOA->PUPDR &= ~(1 << 0);
-
-  GPIOC->ODR |= (1 << 6);
-  GPIOC->ODR &= ~(1<<7);
-
-  uint32_t debouncer  = 0;
-
+  //Wait until either TXIS or NACKF flags are set
+  while (!(I2C2->ISR & I2C_ISR_NACKF) && !(I2C2->ISR & I2C_ISR_TXIS)) {}
+  if (I2C2->ISR & I2C_ISR_NACKF)
+  {
+    //Failed
+    GPIOC->ODR |= GPIO_ODR_6;
+  }
+  else
+  {
+    //success
+    GPIOC->ODR |= GPIO_ODR_9;
+    //Write addres of WHO_AM_I register into I2C TXDR
+    I2C2->TXDR |= 0x0F;
+    //Wait until TC flag set
+    while (!(I2C2->ISR & I2C_ISR_TC)) {}
+    //Reload CR2 with same parameters but set RD_WRN bit to 1 to read 
+    //set start bit again to perform restart
+    I2C2->CR2 |= 0x0012469;
+    //wait until either RXNE or NACKF flags set
+    while (!(I2C2->ISR & I2C_ISR_NACKF) && !(I2C2->ISR & I2C_ISR_RXNE)) {}
+    if (I2C2->ISR & I2C_ISR_NACKF)
+    {
+      //Failed
+      GPIOC->ODR |= GPIO_ODR_8;
+    }
+    else
+    {
+      //wait until TC
+      while (!(I2C2->ISR & I2C_ISR_TC)) {}
+      //Check RXDR register to see if it matches 0xD3
+      if (I2C2->RXDR == 0xD3)
+      {
+        GPIOC->ODR |= GPIO_ODR_7;
+      }
+      //Set STOP bit in CR2 to release I2C bus
+      I2C2->CR2 |= I2C_CR2_STOP;
+    }
+  }
+  
   while (1)
   {
-    debouncer = (debouncer  << 1);
-
-    if(GPIOA->IDR & 1){
-      debouncer |= 0x01;
-    }
-    if(debouncer == 0xFFFFFFFF){
-      if(GPIOA->IDR & 1){
-        HAL_Delay(100);
-        GPIOC->ODR ^= ((1 << 6) | (1<<7));
-      }
-    }
   }
 
 }
