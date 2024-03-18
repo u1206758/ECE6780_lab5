@@ -98,7 +98,6 @@ void init_leds(void)
   GPIOC->BSRR |= GPIO_BSRR_BR_7;
   GPIOC->BSRR |= GPIO_BSRR_BR_8;
   GPIOC->BSRR |= GPIO_BSRR_BR_9;
-
 }
 
 int main(void)
@@ -140,10 +139,14 @@ int main(void)
   //Enable I2C using PE bit in CR1
   I2C2->CR1 |= I2C_CR1_PE;
   //Set L3GD20 slave address = 0x69
+  I2C2->CR2 &= ~((0x7F << 16) | (0x3FF << 0));
+  I2C2->CR2 |= ((1 << 16) | (0x69 << 1));
   //Set number of bytes to transmit = 1
   //set RD_WRN bit to 0 to indicate write
   //set the START bit
-  I2C2->CR2 |= 0x00012069;
+  //I2C2->CR2 |= 0x00010069;
+  HAL_Delay(1);
+  I2C2->CR2 |= I2C_CR2_START;
 
   //Wait until either TXIS or NACKF flags are set
   while (!(I2C2->ISR & I2C_ISR_NACKF) && !(I2C2->ISR & I2C_ISR_TXIS)) {}
@@ -157,12 +160,13 @@ int main(void)
     //success
     GPIOC->ODR |= GPIO_ODR_9;
     //Write addres of WHO_AM_I register into I2C TXDR
-    I2C2->TXDR |= 0x0F;
+    I2C2->TXDR = 0x0F;
     //Wait until TC flag set
     while (!(I2C2->ISR & I2C_ISR_TC)) {}
     //Reload CR2 with same parameters but set RD_WRN bit to 1 to read 
     //set start bit again to perform restart
-    I2C2->CR2 |= 0x0012469;
+    I2C2->CR2 |= 0x0010469;
+    I2C2->CR2 |= I2C_CR2_START;
     //wait until either RXNE or NACKF flags set
     while (!(I2C2->ISR & I2C_ISR_NACKF) && !(I2C2->ISR & I2C_ISR_RXNE)) {}
     if (I2C2->ISR & I2C_ISR_NACKF)
@@ -175,7 +179,7 @@ int main(void)
       //wait until TC
       while (!(I2C2->ISR & I2C_ISR_TC)) {}
       //Check RXDR register to see if it matches 0xD3
-      if (I2C2->RXDR == 0xD3)
+      if (I2C2->RXDR & 0xD3)
       {
         GPIOC->ODR |= GPIO_ODR_7;
       }
