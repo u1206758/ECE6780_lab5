@@ -100,6 +100,139 @@ void init_leds(void)
   GPIOC->BSRR |= GPIO_BSRR_BR_9;
 }
 
+//Initialize USART3 for debugging
+void init_uart(void)
+{
+  //Set pin PC4 for USART TX
+  GPIOC->MODER |= GPIO_MODER_MODER4_1; //Alternate function
+  GPIOC->OTYPER &= ~GPIO_OTYPER_OT_4; // Push-pull
+  GPIOC->OSPEEDR &= ~GPIO_OSPEEDR_OSPEEDR4_0; //Low speed
+  GPIOC->PUPDR |= GPIO_PUPDR_PUPDR4_0; //Pull up
+  //Set pin PC5 for USART RX
+  GPIOC->MODER |= GPIO_MODER_MODER5_1; //Alternate function
+  GPIOC->OTYPER &= ~GPIO_OTYPER_OT_5; // Push-pull
+  GPIOC->OSPEEDR &= ~GPIO_OSPEEDR_OSPEEDR5_0; //Low speed
+  GPIOC->PUPDR |= GPIO_PUPDR_PUPDR5_0; //Pull up
+  //-GPIOC->AFR[0] &= 0xFFFF44FF;
+  GPIOC->AFR[0] |= 0x00110000;
+
+  //Enable clock to USART3
+  RCC->APB1ENR |= RCC_APB1ENR_USART3EN;
+  //Set word length to 8 bits
+  USART3->CR1 &= ~USART_CR1_M1;
+  USART3->CR1 &= ~USART_CR1_M0;
+  //Set baud rate to 115200 bits/sec
+  USART3->BRR = 0x45;
+  //Set stop bits to 1
+  USART3->CR2 &= ~USART_CR2_STOP_0;
+  USART3->CR2 &= ~USART_CR2_STOP_1;
+  //Set no parity
+  USART3->CR1 &= ~USART_CR1_PCE;
+  //Enable transmitter and receiver
+  USART3->CR1 |= USART_CR1_TE;
+  USART3->CR1 |= USART_CR1_RE;
+  //Enable USART peripheral
+  USART3->CR1 |= USART_CR1_UE;  
+}
+
+//Transmits one character over UART
+void transmit_char(char c)
+{
+  //Wait until USART transmit register is empty
+  while (!(USART3->ISR & USART_ISR_TC)) {}
+  //Write character to transmit register
+  USART3->TDR = c;
+}
+
+//Converts 16 bit signed int to chars for uart debugging
+void transmit_val(int16_t val)
+{
+  uint8_t num[5];
+
+  if (val < 0)
+  {
+    val = ~val;
+    val += 1;
+    transmit_char('-');
+  }
+  else
+    transmit_char(' ');
+    
+  for (int i = 0; i < 5; i++)
+  {
+    num[i] = val % 10;
+    val /= 10;
+  }
+  for (int i = 4; i >=0; i--)
+    transmit_char(num[i]+48);
+
+  transmit_char('\n');
+  transmit_char('\r');
+}
+
+int16_t read_axis(char axis)
+{
+  //Set gyro I2C address to X or Y axis
+  uint16_t axis_address;
+  int16_t low = 0, high = 0, axis_value = 0;
+  if (axis == 'x')
+    axis_address = 0xA8;
+  else if (axis == 'y')
+    axis_address = 0xAA;
+  else
+    return 0;
+
+  //Configure I2C to write to gyro
+  I2C2->CR2 &= ~((0x7F << 16) | (0x3FF << 0));
+  I2C2->CR2 |= ((1 << 16) | (0x69 << 1));
+  I2C2->CR2 &= ~I2C_CR2_RD_WRN;
+  I2C2->CR2 |= I2C_CR2_START;
+  
+  //Wait until either TXIS or NACKF flags are set
+  while (!(I2C2->ISR & I2C_ISR_NACKF) && !(I2C2->ISR & I2C_ISR_TXIS)) {}
+  if (!(I2C2->ISR & I2C_ISR_NACKF))
+  {
+    //Write addres of axis data register into I2C TXDR
+    I2C2->TXDR = axis_address;
+    //Wait until TC flag set
+    while (!(I2C2->ISR & I2C_ISR_TC)) {}
+    //Reconfigure I2C to read 2 bytes
+    I2C2->CR2 &= ~((0x7F << 16) | (0x3FF << 0));  
+    I2C2->CR2 |= ((2 << 16) | (0x69 << 1));
+    I2C2->CR2 |= I2C_CR2_RD_WRN;
+    //set start bit again to perform restart
+    I2C2->CR2 |= I2C_CR2_START;
+    //wait until either RXNE or NACKF flags set
+    while (!(I2C2->ISR & I2C_ISR_NACKF) && !(I2C2->ISR & I2C_ISR_RXNE)) {}
+    if (!(I2C2->ISR & I2C_ISR_NACKF))
+    {
+      //Read first byte
+      low = I2C2->RXDR;
+    }
+    else
+      return 0;
+    //wait until either RXNE or NACKF flags set
+    while (!(I2C2->ISR & I2C_ISR_NACKF) && !(I2C2->ISR & I2C_ISR_RXNE)) {}
+    if (!(I2C2->ISR & I2C_ISR_NACKF))
+    {
+      //Read second byte
+      high = I2C2->RXDR;
+    }
+    else
+      return 0;
+    //Wait until transmission complete
+    while (!(I2C2->ISR & I2C_ISR_TC)) {}
+    //Set STOP bit in CR2 to release I2C bus
+    I2C2->CR2 |= I2C_CR2_STOP;
+  }
+  else
+    return 0;
+
+  axis_value = high << 8;
+  axis_value |= low;
+  return axis_value;
+}
+
 int main(void)
 {
   SystemClock_Config();
@@ -109,7 +242,8 @@ int main(void)
   RCC->AHBENR |= RCC_AHBENR_GPIOCEN;
 
   init_leds();
-  
+  init_uart();
+
   //Set PB11 to alternate function, open-drain output, I2C2_SDA
   GPIOB->MODER |= GPIO_MODER_MODER11_1;
   GPIOB->OTYPER |= GPIO_OTYPER_OT_11;
@@ -145,7 +279,6 @@ int main(void)
   //set RD_WRN bit to 0 to indicate write
   //set the START bit
   //I2C2->CR2 |= 0x00010069;
-  HAL_Delay(1);
   I2C2->CR2 |= I2C_CR2_START;
 
   //Wait until either TXIS or NACKF flags are set
@@ -168,7 +301,6 @@ int main(void)
     I2C2->CR2 |= ((1 << 16) | (0x69 << 1));
     I2C2->CR2 |= I2C_CR2_RD_WRN;
     //set start bit again to perform restart
-    HAL_Delay(1);
     I2C2->CR2 |= I2C_CR2_START;
     //wait until either RXNE or NACKF flags set
     while (!(I2C2->ISR & I2C_ISR_NACKF) && !(I2C2->ISR & I2C_ISR_RXNE)) {}
@@ -190,9 +322,77 @@ int main(void)
       I2C2->CR2 |= I2C_CR2_STOP;
     }
   }
+
+  //Wait 1 second and turn off LEDs
+  HAL_Delay(1000);
+  GPIOC->ODR &= ~GPIO_ODR_6;
+  GPIOC->ODR &= ~GPIO_ODR_7;
+  GPIOC->ODR &= ~GPIO_ODR_8;
+  GPIOC->ODR &= ~GPIO_ODR_9;
+
+  //Writing to gyro
+  I2C2->CR2 &= ~((0x7F << 16) | (0x3FF << 0));
+  I2C2->CR2 |= ((2 << 16) | (0x69 << 1));
+  I2C2->CR2 &= ~I2C_CR2_RD_WRN;
+  I2C2->CR2 |= I2C_CR2_START;
   
+  //Wait until either TXIS or NACKF flags are set
+  while (!(I2C2->ISR & I2C_ISR_NACKF) && !(I2C2->ISR & I2C_ISR_TXIS)) {}
+  if (!(I2C2->ISR & I2C_ISR_NACKF))
+  {
+    //Success
+    //Writing to control register 1
+    I2C2->TXDR = 0x20;
+    //Wait until TC flag set
+    while (!(I2C2->ISR & I2C_ISR_NACKF) && !(I2C2->ISR & I2C_ISR_TXIS)) {}
+    //Enable X and Y gyro axes and set sensor into normal mode
+    I2C2->TXDR = 0x0B;
+    //Wait until TC flag set
+    while (!(I2C2->ISR & I2C_ISR_TC)) {}
+    //Set STOP bit to release I2C bus
+    I2C2->CR2 |= I2C_CR2_STOP;
+  }
+  else
+    GPIOC->ODR |= GPIO_ODR_6; //Turn on red LED
+  
+  int16_t gyro_x, gyro_y;
+
   while (1)
   {
+    HAL_Delay(100);
+    //Read X value
+    gyro_x = read_axis('x');
+    HAL_Delay(1);
+    //Read Y value
+    gyro_y = read_axis('y');
+
+    if (gyro_x > 2000)
+    {
+      GPIOC->ODR |= GPIO_ODR_9;     
+    }
+    else if (gyro_x < -2000)
+    {
+      GPIOC->ODR |= GPIO_ODR_8;
+    }
+    else
+    {
+      GPIOC->ODR &= ~GPIO_ODR_8;
+      GPIOC->ODR &= ~GPIO_ODR_9;
+    }
+
+    if (gyro_y > 2000)
+    {
+      GPIOC->ODR |= GPIO_ODR_6;     
+    }
+    else if (gyro_y < -2000)
+    {
+      GPIOC->ODR |= GPIO_ODR_7;
+    }
+    else
+    {
+      GPIOC->ODR &= ~GPIO_ODR_6;
+      GPIOC->ODR &= ~GPIO_ODR_7;
+    } 
   }
 
 }
@@ -287,5 +487,6 @@ void assert_failed(uint8_t* file, uint32_t line)
 /**
   * @}
 */
+
 
 /************************ (C) COPYRIGHT STMicroelectronics *****END OF FILE****/
